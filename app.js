@@ -56,7 +56,7 @@ app.get('/', (req, res) => {
     data: {
       name: 'Self Improvement Tracker API',
       version: '1.0.0',
-      author: 'Your Name',
+      author: 'Akshay Jerath',
       endpoints: {
         auth: '/api/auth',
         behaviors: '/api/behaviors',
