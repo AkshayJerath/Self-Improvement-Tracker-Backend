@@ -7,7 +7,7 @@ A comprehensive backend API for a self-improvement tracking application that hel
 ### Core Features
 - **User Authentication**: Register, login, and JWT authentication
 - **Behavior Management**: Create, read, update, and delete behaviors
-- **Todo Management**: Add, update, delete, and toggle todos for each behavior
+- **To do Management**: Add, update, delete, and toggle todos for each behavior
 - **Top Behaviors**: Get top 5 behaviors with the most todo items
 
 ### Bonus Features (for selection)
@@ -389,7 +389,3 @@ The API is ready for deployment to platforms like:
 - Digital Ocean
 - Google Cloud
 - Azure
-
-## License
-
-[MIT License](LICENSE)
