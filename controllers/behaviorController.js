@@ -1,13 +1,12 @@
 const Behavior = require('../models/Behavior');
 const Todo = require('../models/Todo');
-const mongoose = require('mongoose');
 
 // @desc    Get all behaviors
 // @route   GET /api/behaviors
 // @access  Private
 exports.getBehaviors = async (req, res) => {
   try {
-    const behaviors = await Behavior.find({ user: req.user.id }).populate('todos');
+    const behaviors = await Behavior.find({ user: req.user.id });
 
     res.status(200).json({
       success: true,
@@ -27,87 +26,37 @@ exports.getBehaviors = async (req, res) => {
 // @access  Private
 exports.getTopBehaviors = async (req, res) => {
   try {
-    // Two approaches to handle this - use approach based on your MongoDB version
-    
-    // APPROACH 1: Direct method - get all behaviors with their todos
-    const behaviors = await Behavior.find({ user: req.user.id }).populate('todos');
-    
-    // Sort by number of todos
-    const sortedBehaviors = behaviors.sort((a, b) => {
-      return (b.todos?.length || 0) - (a.todos?.length || 0);
-    });
-    
-    // Get top 5
-    const topBehaviors = sortedBehaviors.slice(0, 5);
-    
-    return res.status(200).json({
-      success: true,
-      count: topBehaviors.length,
-      data: topBehaviors
-    });
-    
-    /* 
-    // APPROACH 2: Using aggregation - if approach 1 doesn't work, try uncommenting this
-    // Make sure userId is a valid ObjectId
-    let userId;
-    try {
-      userId = mongoose.Types.ObjectId(req.user.id);
-    } catch (err) {
-      userId = req.user.id; // Use as string if conversion fails
-    }
-    
-    // Count todos for each behavior
-    const todoCountByBehavior = await Todo.aggregate([
-      { $match: { user: userId } },
+    // Aggregate to count todos per behavior
+    const results = await Todo.aggregate([
+      { $match: { user: req.user._id } },
       { $group: { _id: '$behavior', count: { $sum: 1 } } },
       { $sort: { count: -1 } },
       { $limit: 5 }
     ]);
-    
-    if (todoCountByBehavior.length === 0) {
-      // If no todos found, just return top 5 behaviors
-      const behaviors = await Behavior.find({ user: req.user.id })
-        .limit(5)
-        .populate('todos');
-      
-      return res.status(200).json({
-        success: true,
-        count: behaviors.length,
-        data: behaviors
-      });
-    }
-    
+
     // Extract behavior IDs
-    const behaviorIds = todoCountByBehavior.map(result => result._id);
-    
+    const behaviorIds = results.map(result => result._id);
+
     // Find behavior details
     const behaviors = await Behavior.find({
       _id: { $in: behaviorIds },
       user: req.user.id
     }).populate('todos');
-    
-    // Create a map for quick lookup
-    const behaviorMap = {};
-    behaviors.forEach(behavior => {
-      behaviorMap[behavior._id.toString()] = behavior;
-    });
-    
-    // Sort behaviors by todo count (match the aggregation order)
-    const sortedBehaviors = behaviorIds
-      .map(id => behaviorMap[id.toString()])
-      .filter(Boolean); // Filter out any undefined values
-    
-    return res.status(200).json({
+
+    // Sort behaviors by todo count (to match the aggregation order)
+    const sortedBehaviors = behaviorIds.map(id => 
+      behaviors.find(behavior => behavior._id.toString() === id.toString())
+    );
+
+    res.status(200).json({
       success: true,
       count: sortedBehaviors.length,
       data: sortedBehaviors
     });
-    */
   } catch (err) {
-    console.error('Error in getTopBehaviors:', err);
     res.status(500).json({
       success: false,
-      error: 'Failed to get top behaviors: ' + err.message
+      error: err.message
     });
   }
 };
@@ -233,7 +182,7 @@ exports.deleteBehavior = async (req, res) => {
     await Todo.deleteMany({ behavior: req.params.id });
     
     // Then delete the behavior
-    await behavior.deleteOne();
+    await behavior.remove();
 
     res.status(200).json({
       success: true,
