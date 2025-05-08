@@ -1,124 +1,18 @@
-const crypto = require('crypto');
-const User = require('../models/User');
+const Behavior = require('../models/Behavior');
+const Todo = require('../models/Todo');
+const mongoose = require('mongoose');
 
-// @desc    Register user
-// @route   POST /api/auth/register
-// @access  Public
-exports.register = async (req, res) => {
+// @desc    Get all behaviors
+// @route   GET /api/behaviors
+// @access  Private
+exports.getBehaviors = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
-
-    // Check if user exists
-    let user = await User.findOne({ email });
-
-    if (user) {
-      return res.status(400).json({
-        success: false,
-        error: 'User already exists'
-      });
-    }
-
-    // Create user
-    user = await User.create({
-      name,
-      email,
-      password
-    });
-
-    sendTokenResponse(user, 201, res);
-  } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: err.message
-    });
-  }
-};
-
-// @desc    Login user
-// @route   POST /api/auth/login
-// @access  Public
-exports.login = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    // Validate email & password
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        error: 'Please provide an email and password'
-      });
-    }
-
-    // Check for user
-    const user = await User.findOne({ email }).select('+password');
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid credentials'
-      });
-    }
-
-    // Check if password matches
-    const isMatch = await user.matchPassword(password);
-
-    if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid credentials'
-      });
-    }
-
-    sendTokenResponse(user, 200, res);
-  } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: err.message
-    });
-  }
-};
-
-// @desc    Refresh access token
-// @route   POST /api/auth/refresh-token
-// @access  Public
-exports.refreshToken = async (req, res) => {
-  try {
-    const { refreshToken } = req.body;
-
-    if (!refreshToken) {
-      return res.status(400).json({
-        success: false,
-        error: 'No refresh token provided'
-      });
-    }
-
-    // Hash the refresh token to compare with the stored one
-    const hashedToken = crypto
-      .createHash('sha256')
-      .update(refreshToken)
-      .digest('hex');
-
-    // Find the user with the refresh token
-    const user = await User.findOne({ refreshToken: hashedToken });
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid refresh token'
-      });
-    }
-
-    // Generate new tokens
-    const accessToken = user.getSignedJwtToken();
-    const newRefreshToken = user.getRefreshToken();
-
-    // Save the new refresh token
-    await user.save();
+    const behaviors = await Behavior.find({ user: req.user.id }).populate('todos');
 
     res.status(200).json({
       success: true,
-      accessToken,
-      refreshToken: newRefreshToken
+      count: behaviors.length,
+      data: behaviors
     });
   } catch (err) {
     res.status(500).json({
@@ -128,16 +22,40 @@ exports.refreshToken = async (req, res) => {
   }
 };
 
-// @desc    Get current logged in user
-// @route   GET /api/auth/me
+// @desc    Get top 5 behaviors with most todos
+// @route   GET /api/behaviors/top
 // @access  Private
-exports.getMe = async (req, res) => {
+exports.getTopBehaviors = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id);
+    // Convert user ID to ObjectId for aggregation
+    const userId = mongoose.Types.ObjectId(req.user.id);
+    
+    // Aggregate to count todos per behavior
+    const results = await Todo.aggregate([
+      { $match: { user: userId } },
+      { $group: { _id: '$behavior', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 5 }
+    ]);
+
+    // Extract behavior IDs
+    const behaviorIds = results.map(result => result._id);
+
+    // Find behavior details
+    const behaviors = await Behavior.find({
+      _id: { $in: behaviorIds },
+      user: req.user.id
+    }).populate('todos');
+
+    // Sort behaviors by todo count (to match the aggregation order)
+    const sortedBehaviors = behaviorIds.map(id => 
+      behaviors.find(behavior => behavior._id.toString() === id.toString())
+    ).filter(Boolean); // Filter out any undefined values
 
     res.status(200).json({
       success: true,
-      data: user
+      count: sortedBehaviors.length,
+      data: sortedBehaviors
     });
   } catch (err) {
     res.status(500).json({
@@ -147,36 +65,92 @@ exports.getMe = async (req, res) => {
   }
 };
 
-// @desc    Update user details
-// @route   PUT /api/auth/updatedetails
+// @desc    Get single behavior
+// @route   GET /api/behaviors/:id
 // @access  Private
-exports.updateDetails = async (req, res) => {
+exports.getBehavior = async (req, res) => {
   try {
-    const fieldsToUpdate = {
-      name: req.body.name,
-      email: req.body.email
-    };
+    const behavior = await Behavior.findById(req.params.id).populate('todos');
 
-    // Only include fields that were actually provided
-    Object.keys(fieldsToUpdate).forEach(key => 
-      fieldsToUpdate[key] === undefined && delete fieldsToUpdate[key]
-    );
-
-    if (Object.keys(fieldsToUpdate).length === 0) {
-      return res.status(400).json({
+    if (!behavior) {
+      return res.status(404).json({
         success: false,
-        error: 'Please provide fields to update'
+        error: 'Behavior not found'
       });
     }
 
-    const user = await User.findByIdAndUpdate(req.user.id, fieldsToUpdate, {
+    // Make sure user owns the behavior
+    if (behavior.user.toString() !== req.user.id) {
+      return res.status(401).json({
+        success: false,
+        error: 'Not authorized to access this behavior'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: behavior
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+};
+
+// @desc    Create new behavior
+// @route   POST /api/behaviors
+// @access  Private
+exports.createBehavior = async (req, res) => {
+  try {
+    // Add user to req.body
+    req.body.user = req.user.id;
+    
+    const behavior = await Behavior.create(req.body);
+
+    res.status(201).json({
+      success: true,
+      data: behavior
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+};
+
+// @desc    Update behavior
+// @route   PUT /api/behaviors/:id
+// @access  Private
+exports.updateBehavior = async (req, res) => {
+  try {
+    let behavior = await Behavior.findById(req.params.id);
+
+    if (!behavior) {
+      return res.status(404).json({
+        success: false,
+        error: 'Behavior not found'
+      });
+    }
+
+    // Make sure user owns the behavior
+    if (behavior.user.toString() !== req.user.id) {
+      return res.status(401).json({
+        success: false,
+        error: 'Not authorized to update this behavior'
+      });
+    }
+
+    behavior = await Behavior.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
       runValidators: true
     });
 
     res.status(200).json({
       success: true,
-      data: user
+      data: behavior
     });
   } catch (err) {
     res.status(500).json({
@@ -186,167 +160,37 @@ exports.updateDetails = async (req, res) => {
   }
 };
 
-// @desc    Update user preferences
-// @route   PUT /api/auth/preferences
+// @desc    Delete behavior
+// @route   DELETE /api/behaviors/:id
 // @access  Private
-exports.updatePreferences = async (req, res) => {
+exports.deleteBehavior = async (req, res) => {
   try {
-    const { theme, language } = req.body;
-    
-    // Create the update object with only provided values
-    const preferencesToUpdate = {};
-    if (theme) preferencesToUpdate['preferences.theme'] = theme;
-    if (language) preferencesToUpdate['preferences.language'] = language;
+    const behavior = await Behavior.findById(req.params.id);
 
-    if (Object.keys(preferencesToUpdate).length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Please provide preferences to update'
-      });
-    }
-
-    const user = await User.findByIdAndUpdate(
-      req.user.id, 
-      preferencesToUpdate, 
-      { new: true, runValidators: true }
-    );
-
-    res.status(200).json({
-      success: true,
-      data: user.preferences
-    });
-  } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: err.message
-    });
-  }
-};
-
-// @desc    Update password
-// @route   PUT /api/auth/updatepassword
-// @access  Private
-exports.updatePassword = async (req, res) => {
-  try {
-    const { currentPassword, newPassword } = req.body;
-
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({
-        success: false,
-        error: 'Please provide current and new password'
-      });
-    }
-
-    const user = await User.findById(req.user.id).select('+password');
-
-    // Check current password
-    const isMatch = await user.matchPassword(currentPassword);
-
-    if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        error: 'Current password is incorrect'
-      });
-    }
-
-    user.password = newPassword;
-    await user.save();
-
-    sendTokenResponse(user, 200, res);
-  } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: err.message
-    });
-  }
-};
-
-// @desc    Forgot password
-// @route   POST /api/auth/forgotpassword
-// @access  Public
-exports.forgotPassword = async (req, res) => {
-  try {
-    const { email } = req.body;
-
-    const user = await User.findOne({ email });
-
-    if (!user) {
+    if (!behavior) {
       return res.status(404).json({
         success: false,
-        error: 'No user with that email'
+        error: 'Behavior not found'
       });
     }
 
-    // Get reset token
-    const resetToken = user.getResetPasswordToken();
-
-    await user.save({ validateBeforeSave: false });
-
-    // In a real-world app, send an email with the token
-    // For this project, we'll just return the token in the response
-    
-    res.status(200).json({
-      success: true,
-      message: 'Password reset token generated',
-      resetToken // In production, this would be sent via email
-    });
-  } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: err.message
-    });
-  }
-};
-
-// @desc    Reset password
-// @route   PUT /api/auth/resetpassword/:resettoken
-// @access  Public
-exports.resetPassword = async (req, res) => {
-  try {
-    // Get hashed token
-    const resetPasswordToken = crypto
-      .createHash('sha256')
-      .update(req.params.resettoken)
-      .digest('hex');
-
-    const user = await User.findOne({
-      resetPasswordToken,
-      resetPasswordExpire: { $gt: Date.now() }
-    });
-
-    if (!user) {
-      return res.status(400).json({
+    // Make sure user owns the behavior
+    if (behavior.user.toString() !== req.user.id) {
+      return res.status(401).json({
         success: false,
-        error: 'Invalid or expired token'
+        error: 'Not authorized to delete this behavior'
       });
     }
 
-    // Set new password
-    user.password = req.body.password;
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpire = undefined;
-    await user.save();
-
-    sendTokenResponse(user, 200, res);
-  } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: err.message
-    });
-  }
-};
-
-// @desc    Log user out / clear cookie
-// @route   GET /api/auth/logout
-// @access  Private
-exports.logout = async (req, res) => {
-  try {
-    // Clear refresh token in database
-    await User.findByIdAndUpdate(req.user.id, { refreshToken: null });
+    // Delete all associated todos first
+    await Todo.deleteMany({ behavior: req.params.id });
+    
+    // Then delete the behavior
+    await behavior.deleteOne();
 
     res.status(200).json({
       success: true,
-      message: 'User logged out successfully'
+      data: {}
     });
   } catch (err) {
     res.status(500).json({
@@ -354,26 +198,4 @@ exports.logout = async (req, res) => {
       error: err.message
     });
   }
-};
-
-// Get token from model, create cookie and send response
-const sendTokenResponse = (user, statusCode, res) => {
-  // Create tokens
-  const accessToken = user.getSignedJwtToken();
-  const refreshToken = user.getRefreshToken();
-  
-  // Save refresh token to database
-  user.save({ validateBeforeSave: false });
-
-  res.status(statusCode).json({
-    success: true,
-    accessToken,
-    refreshToken,
-    user: {
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      preferences: user.preferences
-    }
-  });
 };
