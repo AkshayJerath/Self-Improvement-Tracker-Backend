@@ -6,12 +6,6 @@ const cors = require('cors');
 // Load env vars
 dotenv.config();
 
-// Middleware: CORS setup (Allowing access from anywhere)
-app.use(cors({
-  origin: '*',
-  credentials: true
-}));
-
 // Connect to database
 connectDB();
 
