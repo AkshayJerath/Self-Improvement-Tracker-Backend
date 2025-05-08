@@ -25,7 +25,7 @@ app.use(express.json());
 // CORS configuration - Allow specific origins with credentials
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
-    ? 'https://selfimprovementtrackerfrontend.vercel.app' 
+    ? 'https://self-improvement-tracker-frontend.vercel.app' 
     : ['http://localhost:3000', 'http://localhost:3001'], // Support local development
   credentials: true, // This is critical for cookies/auth to work
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
