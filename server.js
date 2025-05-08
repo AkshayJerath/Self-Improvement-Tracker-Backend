@@ -1,7 +1,6 @@
-""const dotenv = require('dotenv');
+const dotenv = require('dotenv');
 const connectDB = require('./config/db');
 const app = require('./app');
-const cors = require('cors');
 
 // Load env vars
 dotenv.config();
@@ -17,7 +16,8 @@ const server = app.listen(PORT, () => {
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (err) => {
-  console.error(`Unhandled Rejection: ${err.message}`);
+  console.log(`Error: ${err.message}`);
+  // Close server & exit process
   server.close(() => process.exit(1));
 });
-""
+
