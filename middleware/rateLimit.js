@@ -1,3 +1,39 @@
+// Simple in-memory store for rate limiting
+const ipRequests = new Map();
+let cleanupInterval;
+
+// Function to start the cleanup interval
+const startCleanupInterval = () => {
+  if (!cleanupInterval) {
+    // Clean up old requests every hour
+    cleanupInterval = setInterval(() => {
+      const now = Date.now();
+      ipRequests.forEach((requests, ip) => {
+        // Filter out requests older than windowMs for each rate limiter
+        // Using the longest window (1 hour) for cleanup
+        const expiry = now - (60 * 60 * 1000);
+        const recent = requests.filter(timestamp => timestamp > expiry);
+        if (recent.length === 0) {
+          ipRequests.delete(ip);
+        } else {
+          ipRequests.set(ip, recent);
+        }
+      });
+    }, 60 * 60 * 1000); // 1 hour
+    
+    // Make sure the interval doesn't keep the process alive
+    cleanupInterval.unref();
+  }
+};
+
+// Function to stop the cleanup interval (for testing)
+const stopCleanupInterval = () => {
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+    cleanupInterval = null;
+  }
+};
+
 const rateLimit = function (options) {
   const defaultOptions = {
     windowMs: 15 * 60 * 1000, // 15 minutes
@@ -7,28 +43,12 @@ const rateLimit = function (options) {
 
   const opts = { ...defaultOptions, ...options };
 
-  // Simple in-memory store for rate limiting
-  const ipRequests = new Map();
-
-  // Get current time
-  const now = Date.now();
-
-  // Clean up old requests every hour
-  setInterval(() => {
-    const expiry = Date.now() - opts.windowMs;
-    ipRequests.forEach((requests, ip) => {
-      // Filter out requests older than windowMs
-      const recent = requests.filter(timestamp => timestamp > expiry);
-      if (recent.length === 0) {
-        ipRequests.delete(ip);
-      } else {
-        ipRequests.set(ip, recent);
-      }
-    });
-  }, 60 * 60 * 1000); // 1 hour
+  // Start the cleanup interval if it's not already running
+  startCleanupInterval();
 
   return (req, res, next) => {
     const ip = req.ip || req.connection.remoteAddress;
+    const now = Date.now();
     
     // Initialize or get existing timestamps for this IP
     const timestamps = ipRequests.get(ip) || [];
@@ -70,3 +90,6 @@ exports.createLimiter = rateLimit({
   max: 50, // 50 create operations per hour
   message: 'Too many create operations from this IP, please try again after an hour'
 });
+
+// For testing purposes to clean up the interval
+exports.stopCleanupInterval = stopCleanupInterval;
