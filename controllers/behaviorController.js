@@ -1,12 +1,13 @@
 const Behavior = require('../models/Behavior');
 const Todo = require('../models/Todo');
+const mongoose = require('mongoose');
 
 // @desc    Get all behaviors
 // @route   GET /api/behaviors
 // @access  Private
 exports.getBehaviors = async (req, res) => {
   try {
-    const behaviors = await Behavior.find({ user: req.user.id });
+    const behaviors = await Behavior.find({ user: req.user.id }).populate('todos');
 
     res.status(200).json({
       success: true,
@@ -26,9 +27,12 @@ exports.getBehaviors = async (req, res) => {
 // @access  Private
 exports.getTopBehaviors = async (req, res) => {
   try {
+    // Convert user ID to ObjectId for aggregation
+    const userId = mongoose.Types.ObjectId(req.user.id);
+
     // Aggregate to count todos per behavior
     const results = await Todo.aggregate([
-      { $match: { user: req.user._id } },
+      { $match: { user: userId } },
       { $group: { _id: '$behavior', count: { $sum: 1 } } },
       { $sort: { count: -1 } },
       { $limit: 5 }
@@ -46,7 +50,7 @@ exports.getTopBehaviors = async (req, res) => {
     // Sort behaviors by todo count (to match the aggregation order)
     const sortedBehaviors = behaviorIds.map(id => 
       behaviors.find(behavior => behavior._id.toString() === id.toString())
-    );
+    ).filter(Boolean); // Filter out any undefined values
 
     res.status(200).json({
       success: true,
@@ -182,7 +186,7 @@ exports.deleteBehavior = async (req, res) => {
     await Todo.deleteMany({ behavior: req.params.id });
     
     // Then delete the behavior
-    await behavior.remove();
+    await behavior.deleteOne();
 
     res.status(200).json({
       success: true,
