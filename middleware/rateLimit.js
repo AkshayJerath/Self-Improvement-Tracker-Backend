@@ -1,17 +1,15 @@
-// Simple in-memory store for rate limiting
+""// Simple in-memory store for rate limiting
 const ipRequests = new Map();
 let cleanupInterval;
 
 // Function to start the cleanup interval
 const startCleanupInterval = () => {
   if (!cleanupInterval) {
-    // Clean up old requests every hour
+    // Clean up old requests every second (1 second)
     cleanupInterval = setInterval(() => {
       const now = Date.now();
       ipRequests.forEach((requests, ip) => {
-        // Filter out requests older than windowMs for each rate limiter
-        // Using the longest window (1 hour) for cleanup
-        const expiry = now - (60 * 60 * 1000);
+        const expiry = now - 1000; // 1 second
         const recent = requests.filter(timestamp => timestamp > expiry);
         if (recent.length === 0) {
           ipRequests.delete(ip);
@@ -19,7 +17,7 @@ const startCleanupInterval = () => {
           ipRequests.set(ip, recent);
         }
       });
-    }, 60 * 60 * 1000); // 1 hour
+    }, 1000); // 1 second
     
     // Make sure the interval doesn't keep the process alive
     cleanupInterval.unref();
@@ -36,9 +34,9 @@ const stopCleanupInterval = () => {
 
 const rateLimit = function (options) {
   const defaultOptions = {
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // limit each IP to 100 requests per windowMs
-    message: 'Too many requests from this IP, please try again later'
+    windowMs: 1000, // 1 second
+    max: 5, // limit each IP to 5 requests per second
+    message: 'Network connection error, kindly try again.'
   };
 
   const opts = { ...defaultOptions, ...options };
@@ -74,22 +72,23 @@ const rateLimit = function (options) {
 
 // Different rate limits for different routes
 exports.apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // 100 requests per 15 minutes
-  message: 'Too many requests from this IP, please try again after 15 minutes'
+  windowMs: 1000, // 1 second
+  max: 5, // 5 requests per second
+  message: 'Network connection error, kindly try again.'
 });
 
 exports.authLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 10, // 10 requests per hour
-  message: 'Too many auth attempts from this IP, please try again after an hour'
+  windowMs: 1000, // 1 second
+  max: 3, // 3 auth attempts per second
+  message: 'Network connection error, kindly try again.'
 });
 
 exports.createLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 50, // 50 create operations per hour
-  message: 'Too many create operations from this IP, please try again after an hour'
+  windowMs: 1000, // 1 second
+  max: 2, // 2 create operations per second
+  message: 'Network connection error, kindly try again.'
 });
 
 // For testing purposes to clean up the interval
 exports.stopCleanupInterval = stopCleanupInterval;
+""
